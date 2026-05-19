@@ -15,10 +15,12 @@ const CLI = `node wx-miniprogram-ci.js`;
 
 const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'wxmini-ci-test-'));
 const CONFIG_DIR = path.join(TMP_ROOT, 'config');
+const EMPTY_CONFIG_DIR = path.join(TMP_ROOT, 'empty-config');
 const PROJECT_DIR = path.join(TMP_ROOT, 'project');
 const PRIVATE_KEY = path.join(TMP_ROOT, 'private.key');
 
 fs.mkdirSync(CONFIG_DIR, { recursive: true });
+fs.mkdirSync(EMPTY_CONFIG_DIR, { recursive: true });
 fs.mkdirSync(PROJECT_DIR, { recursive: true });
 fs.writeFileSync(path.join(PROJECT_DIR, 'project.config.json'), '{}', 'utf-8');
 fs.writeFileSync(PRIVATE_KEY, 'dummy-key', 'utf-8');
@@ -68,6 +70,27 @@ if (run(`${CLI} config --project myapp --set appid=test_project_appid --config-d
 
 // 测试 config --project myapp --get appid
 if (run(`${CLI} config --project myapp --get appid --config-dir "${CONFIG_DIR}"`, '获取项目 appid 配置')) passed++; else failed++;
+
+// 测试 init 命令（仅检查是否已安装 miniprogram-ci，无需外部配置）
+if (run(`${CLI} init`, '初始化环境（检查全局 miniprogram-ci）')) passed++; else failed++;
+
+// 测试 preview 命令缺少 appid
+if (!run(`${CLI} preview --project-path "${PROJECT_DIR}" --private-key "${PRIVATE_KEY}" --config-dir "${EMPTY_CONFIG_DIR}"`, 'preview 缺少 appid（预期报错）')) passed++; else failed++;
+
+// 测试 upload 命令缺少 version
+if (!run(`${CLI} upload --appid test_appid --private-key "${PRIVATE_KEY}" --project-path "${PROJECT_DIR}" --config-dir "${CONFIG_DIR}"`, 'upload 缺少 version（预期报错）')) passed++; else failed++;
+
+// 测试 build-npm 命令缺少 appid
+if (!run(`${CLI} build-npm --private-key "${PRIVATE_KEY}" --project-path "${PROJECT_DIR}" --config-dir "${EMPTY_CONFIG_DIR}"`, 'build-npm 缺少 appid（预期报错）')) passed++; else failed++;
+
+// 测试 upload-function 命令缺少 path
+if (!run(`${CLI} upload-function --appid test_appid --private-key "${PRIVATE_KEY}" --project-path "${PROJECT_DIR}" --env testenv --name testfunc --config-dir "${CONFIG_DIR}"`, 'upload-function 缺少 path（预期报错）')) passed++; else failed++;
+
+// 测试 upload-storage 命令缺少 path
+if (!run(`${CLI} upload-storage --appid test_appid --private-key "${PRIVATE_KEY}" --project-path "${PROJECT_DIR}" --env testenv --config-dir "${CONFIG_DIR}"`, 'upload-storage 缺少 path（预期报错）')) passed++; else failed++;
+
+// 测试 get-sourcemap 命令缺少 output
+if (!run(`${CLI} get-sourcemap --appid test_appid --private-key "${PRIVATE_KEY}" --project-path "${PROJECT_DIR}" --robot 1 --config-dir "${CONFIG_DIR}"`, 'get-sourcemap 缺少 output（预期报错）')) passed++; else failed++;
 
 // 测试 check 命令，使用临时项目目录和私钥文件
 if (run(`${CLI} check --appid test_appid --private-key "${PRIVATE_KEY}" --project-path "${PROJECT_DIR}" --config-dir "${CONFIG_DIR}"`, '检查配置有效性（本地虚拟项目/私钥）')) passed++; else failed++;

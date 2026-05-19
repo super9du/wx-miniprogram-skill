@@ -5,12 +5,12 @@
  * 用法: node tests/run-tests.js
  */
 
-const { execSync } = require('child_process');
+const { spawnSync } = require('child_process');
 const fs = require('fs');
 const os = require('os');
 const path = require('path');
 
-const SCRIPT_DIR = path.join(__dirname, '..', 'scripts');
+const SCRIPT_DIR = path.join(__dirname, '..', 'skills', 'wx-miniprogram-ci', 'scripts');
 const CLI = `node wx-miniprogram-ci.js`;
 
 const TMP_ROOT = fs.mkdtempSync(path.join(os.tmpdir(), 'wxmini-ci-test-'));
@@ -25,14 +25,24 @@ fs.mkdirSync(PROJECT_DIR, { recursive: true });
 fs.writeFileSync(path.join(PROJECT_DIR, 'project.config.json'), '{}', 'utf-8');
 fs.writeFileSync(PRIVATE_KEY, 'dummy-key', 'utf-8');
 
+function parseCommand(cmd) {
+  return cmd.match(/(?:[^\s"]+|"[^"]*")+/g).map(token => token.replace(/^"|"$/g, ''));
+}
+
 function run(cmd, description) {
   console.log(`\n${'='.repeat(50)}`);
   console.log(`测试: ${description}`);
   console.log(`命令: ${cmd}`);
   console.log('='.repeat(50));
   try {
-    const output = execSync(cmd, { cwd: SCRIPT_DIR, encoding: 'utf-8' });
-    console.log(output);
+    const parts = parseCommand(cmd);
+    const program = parts[0] === 'node' ? process.execPath : parts[0];
+    const args = parts.slice(1);
+    const result = spawnSync(program, args, { cwd: SCRIPT_DIR, encoding: 'utf-8' });
+    if (result.stdout) console.log(result.stdout);
+    if (result.stderr) console.log(result.stderr);
+    if (result.error) throw result.error;
+    if (result.status !== 0) throw new Error(`exit code ${result.status}`);
     console.log('✅ 成功');
     return true;
   } catch (e) {

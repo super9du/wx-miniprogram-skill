@@ -1,0 +1,26 @@
+{
+  "name": "wx-miniprogram-ci-skill",
+  "displayName": "WX MiniProgram CI Skill",
+  "description": "Integrates miniprogram-ci based workflows (preview, upload, build-npm, cloud functions) for WeChat Mini Programs.",
+  "version": "1.2.0",
+  "author": "super9du",
+  "license": "MIT",
+  "homepage": "",
+  "repository": "https://github.com/super9du/wx-miniprogram-ci-skill",
+  "keywords": [
+    "wechat",
+    "miniprogram",
+    "ci",
+    "miniprogram-ci",
+    "wx"
+  ],
+  "platforms": [
+    "copilot",
+    "claude",
+    "codex",
+    "gemini",
+    "opencode",
+    "openclaw"
+  ],
+  "install": "npx skills add super9du/wx-miniprogram-ci-skill --skill wx-miniprogram-ci"
+}

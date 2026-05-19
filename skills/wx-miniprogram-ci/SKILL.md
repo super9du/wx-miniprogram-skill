@@ -1,11 +1,11 @@
 ---
 name: wx-miniprogram-ci
-description: 微信小程序 CI 工具技能。支持构建、预览、云函数、云存储等全部 miniprogram-ci 能力。使用 Node.js 开发，跨平台，可配置。
+description: 为微信小程序项目开发提供预览、上传、构建 npm、云函数上传、云存储上传等能力。
 ---
 
 # wx-miniprogram-skill
 
-微信小程序 Linux/macOS/Windows CI 技能，基于 [miniprogram-ci](https://www.npmjs.com/package/miniprogram-ci)。
+为微信小程序项目提供预览、上传、构建 npm、云函数上传、云存储上传等能力的技能，基于微信官方的 npm 命令 [miniprogram-ci](https://www.npmjs.com/package/miniprogram-ci) 创建。
 
 ## 快速开始
 
@@ -13,8 +13,6 @@ description: 微信小程序 CI 工具技能。支持构建、预览、云函数
 > ```bash
 > node scripts/wx-miniprogram-ci.js <command> [options]
 > ```
->
-> 本脚本本身只做配置管理和全局 `miniprogram-ci` CLI 调用，实际 preview/upload 等能力由全局安装的 `miniprogram-ci` 提供。
 
 ### 1. 初始化环境
 

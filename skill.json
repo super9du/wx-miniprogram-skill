@@ -1,7 +1,7 @@
 {
   "name": "wx-miniprogram-ci-skill",
   "displayName": "WX MiniProgram CI Skill",
-  "description": "Integrates miniprogram-ci based workflows (preview, upload, build-npm, cloud functions) for WeChat Mini Programs.",
+  "description": "微信小程序 CI 工具技能。支持构建、预览、云函数、云存储等全部 miniprogram-ci 能力。使用 Node.js 开发，跨平台，可配置。",
   "version": "1.2.0",
   "author": "super9du",
   "license": "MIT",

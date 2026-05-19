@@ -9,16 +9,17 @@ description: 微信小程序 CI 工具技能。支持构建、预览、云函数
 
 ## 快速开始
 
-> ⚠️ **注意**：脚本位于 `scripts/wx-miniprogram-ci.js`，运行时需先进入该目录：
+> ⚠️ **注意**：脚本位于 `scripts/wx-miniprogram-ci.js`，可从仓库根目录直接运行：
 > ```bash
-> cd ~/.openclaw/skills/wx-miniprogram-ci/scripts
-> node wx-miniprogram-ci.js <command> [options]
+> node scripts/wx-miniprogram-ci.js <command> [options]
 > ```
+>
+> 本脚本本身只做配置管理和全局 `miniprogram-ci` CLI 调用，实际 preview/upload 等能力由全局安装的 `miniprogram-ci` 提供。
 
 ### 1. 初始化环境
 
 ```bash
-node wx-miniprogram-ci.js init --project-path /path/to/your/project
+node wx-miniprogram-ci.js init
 ```
 
 ### 2. 配置
@@ -43,7 +44,7 @@ node wx-miniprogram-ci.js <command> [options]
 
 | 命令 | 说明 |
 |------|------|
-| init | 初始化环境（安装 miniprogram-ci） |
+| init | 初始化环境（检查/安装全局 miniprogram-ci） |
 | config | 查看/修改配置 |
 | check | 检查配置是否完整 |
 | preview | 预览（生成二维码） |
@@ -76,13 +77,13 @@ node wx-miniprogram-ci.js <command> [options]
 ### init - 初始化环境
 
 ```bash
-node wx-miniprogram-ci.js init --project-path /path/to/project
+node wx-miniprogram-ci.js init
 ```
 
-初始化项目环境：
-1. 检查项目目录是否存在
-2. 安装 `miniprogram-ci`（如果未安装）
-3. 创建输出目录
+初始化环境：
+1. 检查是否已全局安装 `miniprogram-ci`
+2. 如果未安装则执行 `npm install -g miniprogram-ci`
+3. 保持当前脚本作为配置管理和全局 CLI 调用层
 
 ---
 

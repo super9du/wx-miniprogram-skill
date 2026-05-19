@@ -222,16 +222,6 @@ function resolveProjectConfig(projectName) {
   };
 }
 
-function checkMiniprogramCiInstalled(projectPath) {
-  const pkgPath = path.join(projectPath, 'node_modules', 'miniprogram-ci');
-  if (!fs.existsSync(pkgPath)) {
-    log('miniprogram-ci 未安装', 'error');
-    log(`请在项目目录执行: cd ${projectPath} && npm install miniprogram-ci`, 'warn');
-    return false;
-  }
-  return true;
-}
-
 function checkPrivateKey(privateKeyPath) {
   if (!privateKeyPath) {
     log('私钥路径未配置', 'error');
@@ -436,51 +426,87 @@ function mergeSetting(options) {
   };
 }
 
-// ============== 命令实现 ==============
-// 每个命令对应一个 async 函数，接受解析后的 options 对象
+function resolvePath(filePath) {
+  if (!filePath) return '';
+  return path.resolve(filePath.replace('~', os.homedir()));
+}
 
-// init: 初始化环境（安装 miniprogram-ci）
-async function cmdInit(options) {
-  log(`=== 环境初始化 (v${VERSION}) ===`, 'info');
-  
-  const projectPath = (options.projectPath || config.projectPath || '').replace('~', os.homedir());
-  
-  if (!projectPath) {
-    log('未指定项目路径，使用 --project-path 或配置文件', 'error');
-    return false;
+function pushArg(args, flag, value) {
+  if (value === undefined || value === null || value === false) return;
+  if (value === true) {
+    args.push(flag, 'true');
+    return;
   }
-  
-  if (!fs.existsSync(projectPath)) {
-    log(`项目目录不存在: ${projectPath}`, 'error');
-    return false;
+  const normalized = typeof value === 'string' ? value : String(value);
+  if (normalized === '') return;
+  args.push(flag, normalized);
+}
+
+function appendSettingArgs(args, setting) {
+  if (!setting || typeof setting !== 'object') return;
+  const mapping = {
+    es6: '--enable-es6',
+    es7: '--enable-es7',
+    minify: '--enable-minify',
+    minifyJS: '--enable-minify-js',
+    minifyWXML: '--enable-minify-wxml',
+    minifyWXSS: '--enable-minify-wxss',
+    codeProtect: '--enable-code-protect',
+    autoPrefixWXSS: '--enable-auto-prefix-wxss'
+  };
+  for (const key of Object.keys(mapping)) {
+    if (setting[key] !== undefined) {
+      pushArg(args, mapping[key], setting[key]);
+    }
   }
-  
-  // 检查并安装 miniprogram-ci
-  const pkgPath = path.join(projectPath, 'node_modules', 'miniprogram-ci');
-  if (fs.existsSync(pkgPath)) {
-    log('miniprogram-ci 已安装', 'success');
-  } else {
-    log('正在安装 miniprogram-ci...', 'info');
+}
+
+function ensureGlobalMiniprogramCi() {
+  const { execSync } = require('child_process');
+  try {
+    execSync('miniprogram-ci --version', { stdio: 'ignore' });
+    log('miniprogram-ci 已全局安装', 'success');
+    return true;
+  } catch (e) {
+    log('miniprogram-ci 未全局安装，正在进行全局安装...', 'info');
     try {
-      const { execSync } = require('child_process');
-      execSync('npm install miniprogram-ci', {
-        cwd: projectPath,
-        stdio: 'inherit'
+      execSync('npm install -g miniprogram-ci', {
+        stdio: 'inherit',
+        shell: process.platform === 'win32'
       });
-      log('miniprogram-ci 安装完成', 'success');
-    } catch (e) {
-      log(`安装失败: ${e.message}`, 'error');
+      log('miniprogram-ci 全局安装完成', 'success');
+      return true;
+    } catch (installError) {
+      log(`全局安装失败: ${installError.message}`, 'error');
       return false;
     }
   }
-  
-  // 检查输出目录
-  const outputDir = options.outputDir || config.outputDir || getDefaultOutputDir();
-  ensureDir(outputDir);
-  log(`输出目录: ${outputDir}`, 'info');
-  
-  log('初始化完成', 'success');
+}
+
+function runGlobalMiniprogramCi(args) {
+  const { spawnSync } = require('child_process');
+  const result = spawnSync('miniprogram-ci', args, {
+    stdio: 'inherit',
+    shell: process.platform === 'win32'
+  });
+  if (result.error) {
+    log(`调用 miniprogram-ci 失败: ${result.error.message}`, 'error');
+    return false;
+  }
+  if (result.status !== 0) {
+    log(`miniprogram-ci 返回非零状态: ${result.status}`, 'error');
+    return false;
+  }
   return true;
+}
+
+// ============== 命令实现 ==============
+// 每个命令对应一个 async 函数，接受解析后的 options 对象
+
+// init: 初始化环境（检查/安装全局 miniprogram-ci）
+async function cmdInit(options) {
+  log(`=== 环境初始化 (v${VERSION}) ===`, 'info');
+  return ensureGlobalMiniprogramCi();
 }
 
 // config: 查看/修改配置（支持 --get/--set/--list/--project）
@@ -739,93 +765,59 @@ async function cmdCheck(options) {
 
 // preview: 预览（生成二维码，扫码在手机上看效果）
 async function cmdPreview(options) {
-  const miniprogramCi = require('miniprogram-ci');
-  
+  if (!ensureGlobalMiniprogramCi()) {
+    return false;
+  }
+
   const projectPath = (options.projectPath || config.projectPath).replace('~', os.homedir());
   const privateKeyPath = (options.privateKeyPath || options.privateKey || config.privateKeyPath).replace('~', os.homedir());
   const appid = options.appid || config.appid;
-  
+
   if (!appid) {
     log('缺少必要参数: appid', 'error');
     return false;
   }
-  
+
   if (!checkPrivateKey(privateKeyPath) || !checkProjectPath(projectPath)) {
     return false;
   }
-  
-  if (!checkMiniprogramCiInstalled(projectPath)) {
-    return false;
-  }
-  
-  const project = new miniprogramCi.Project({
-    appid,
-    type: options.type || config.type,
-    projectPath,
-    privateKeyPath
-  });
-  
-  const qrcodeFormat = options.qrcodeFormat || 'terminal';
+
   const outputDir = path.resolve((options.outputDir || config.outputDir || getDefaultOutputDir()).replace('~', os.homedir()));
-  ensureDir(outputDir);
-  
-  // --qrcode-output 指定时优先使用，否则生成带时间戳的文件名
   const qrcodeOutput = (options.qrcodeOutput && options.qrcodeOutput !== true)
-    ? path.resolve(options.qrcodeOutput.replace('~', os.homedir()))
+    ? resolvePath(options.qrcodeOutput)
     : path.join(outputDir, `preview-${Date.now()}.png`);
-  const desc = options.desc || `预览 ${new Date().toLocaleString()}`;
-  
-  log(`=== 预览 ===`);
-  log(`描述: ${desc}`);
-  log(`输出: ${qrcodeOutput}`);
-  
-  if (options.robot && !validateRobot(options.robot)) {
-    return false;
-  }
-  
-  try {
-    const result = await miniprogramCi.preview({
-      project,
-      desc,
-      setting: mergeSetting(options),
-      qrcodeFormat,
-      qrcodeOutputDest: qrcodeOutput,
-      pagePath: options.pagePath,
-      searchQuery: options.searchQuery,
-      scene: options.scene || 1011,
-      robot: options.robot || 1
-    });
-    
-    log(`包信息:`, 'success');
-    if (result.subPackageInfo) {
-      result.subPackageInfo.forEach(pkg => {
-        log(`  ${pkg.name}: ${(pkg.size / 1024).toFixed(2)} KB`);
-      });
-    }
-    
-    if (qrcodeFormat === 'terminal') {
-      log(`预览完成，请在终端扫描二维码`, 'success');
-    } else {
-      log(`二维码已保存: ${qrcodeOutput}`, 'success');
-    }
-    
-    return true;
-  } catch (e) {
-    log(`预览失败: ${e.message}`, 'error');
-    return false;
-  }
+  ensureDir(path.dirname(qrcodeOutput));
+
+  const args = ['preview'];
+  pushArg(args, '--pp', projectPath);
+  pushArg(args, '--pkp', privateKeyPath);
+  pushArg(args, '--appid', appid);
+  pushArg(args, '--type', options.type || config.type);
+  pushArg(args, '--desc', options.desc || `预览 ${new Date().toLocaleString()}`);
+  pushArg(args, '--qrcode-format', options.qrcodeFormat || 'terminal');
+  pushArg(args, '--qrcode-output-dest', qrcodeOutput);
+  pushArg(args, '--page-path', options.pagePath);
+  pushArg(args, '--search-query', options.searchQuery);
+  pushArg(args, '--scene', options.scene || 1011);
+  if (options.robot) pushArg(args, '-r', options.robot);
+  appendSettingArgs(args, mergeSetting(options));
+
+  log('=== 预览 ===');
+  return runGlobalMiniprogramCi(args);
 }
 
 // upload: 上传代码（提交审核）
 async function cmdUpload(options) {
-  const miniprogramCi = require('miniprogram-ci');
-  
+  if (!ensureGlobalMiniprogramCi()) {
+    return false;
+  }
+
   const projectPath = (options.projectPath || config.projectPath).replace('~', os.homedir());
   const privateKeyPath = (options.privateKeyPath || options.privateKey || config.privateKeyPath).replace('~', os.homedir());
   const appid = options.appid || config.appid;
   const version = options.version;
   const desc = options.desc || `上传 ${new Date().toLocaleString()}`;
-  
+
   if (!appid) {
     log('缺少必要参数: appid', 'error');
     return false;
@@ -837,153 +829,66 @@ async function cmdUpload(options) {
   if (!checkPrivateKey(privateKeyPath) || !checkProjectPath(projectPath)) {
     return false;
   }
-  if (!checkMiniprogramCiInstalled(projectPath)) {
-    return false;
-  }
-  
-  const project = new miniprogramCi.Project({
-    appid,
-    type: options.type || config.type,
-    projectPath,
-    privateKeyPath
-  });
-  
-  log(`=== 上传 ===`);
-  log(`版本: ${version}`);
-  log(`描述: ${desc}`);
-  
-  if (options.robot && !validateRobot(options.robot)) {
-    return false;
-  }
-  
-  try {
-    const result = await miniprogramCi.upload({
-      project,
-      version,
-      desc,
-      setting: mergeSetting(options),
-      robot: options.robot || 1,
-      threads: options.threads || 1
-    });
-    
-    log(`上传成功!`, 'success');
-    if (result.subPackageInfo) {
-      log(`包信息:`, 'success');
-      result.subPackageInfo.forEach(pkg => {
-        log(`  ${pkg.name}: ${(pkg.size / 1024).toFixed(2)} KB`);
-      });
-    }
-    if (result.pluginInfo) {
-      log(`插件信息:`, 'info');
-      result.pluginInfo.forEach(p => {
-        log(`  ${p.pluginProviderAppid}: ${p.version} (${(p.size / 1024).toFixed(2)} KB)`);
-      });
-    }
-    
-    return true;
-  } catch (e) {
-    log(`上传失败: ${e.message}`, 'error');
-    return false;
-  }
+
+  const args = ['upload'];
+  pushArg(args, '--pp', projectPath);
+  pushArg(args, '--pkp', privateKeyPath);
+  pushArg(args, '--appid', appid);
+  pushArg(args, '--type', options.type || config.type);
+  pushArg(args, '--uv', version);
+  pushArg(args, '--desc', desc);
+  if (options.robot) pushArg(args, '-r', options.robot);
+  if (options.threads) pushArg(args, '--threads', options.threads);
+  appendSettingArgs(args, mergeSetting(options));
+
+  log('=== 上传 ===');
+  return runGlobalMiniprogramCi(args);
 }
 
 // build-npm: 构建 npm（将 node_modules 打包为 miniprogram_npm）
-// 根据 miniprogram-ci 版本自动选择 API：
-//   - v1.x: miniprogram-ci.buildNpm()
-//   - v2.x: miniprogram-ci.packNpm()
 async function cmdBuildNpm(options) {
-  const miniprogramCi = require('miniprogram-ci');
-  
+  if (!ensureGlobalMiniprogramCi()) {
+    return false;
+  }
+
   const projectPath = (options.projectPath || config.projectPath).replace('~', os.homedir());
   const privateKeyPath = (options.privateKeyPath || options.privateKey || config.privateKeyPath).replace('~', os.homedir());
   const appid = options.appid || config.appid;
-  
+
   if (!appid) {
     log('缺少必要参数: appid', 'error');
     return false;
   }
-  
+
   if (!checkPrivateKey(privateKeyPath) || !checkProjectPath(projectPath)) {
     return false;
   }
-  
-  if (!checkMiniprogramCiInstalled(projectPath)) {
-    return false;
-  }
-  
-  const project = new miniprogramCi.Project({
-    appid,
-    type: options.type || config.type,
-    projectPath,
-    privateKeyPath
-  });
-  
-  // 检测 miniprogram-ci 版本，决定使用 buildNpm 还是 packNpm
-  // 源码验证结论：
-  //   - v1.9.27（最后一个 v1 版本）：buildNpm 存在，packNpm 不存在
-  //   - v2.0.0 及以上（所有 v2 版本）：packNpm 存在，buildNpm 不存在
-  // 因此以 major < 2（即 v1.x）判断是否使用 buildNpm
-  const pkgPath = path.join(projectPath, 'node_modules', 'miniprogram-ci', 'package.json');
-  const pkgJson = JSON.parse(fs.readFileSync(pkgPath, 'utf-8'));
-  const version = pkgJson.version || '1.0.0';
-  const [major] = version.split('.').map(Number);
-  const useBuildNpm = major < 2;
-  
-  log(`=== 构建 NPM ===`);
-  log(`miniprogram-ci 版本: ${version} (使用 ${useBuildNpm ? 'buildNpm' : 'packNpm'})`);
-  
-  try {
-    if (useBuildNpm) {
-      // v1.x API
-      await miniprogramCi.buildNpm({
-        project,
-        ignores: options.ignores,
-        reporter: (info) => {
-          if (info.type === 'error') {
-            log(`错误: ${info.message}`, 'error');
-          } else if (info.type === 'warn') {
-            log(`警告: ${info.message}`, 'warn');
-          } else {
-            log(info.message);
-          }
-        }
-      });
-    } else {
-      // v2.x API
-      await miniprogramCi.packNpm(project, {
-        ignores: options.ignores,
-        reporter: (info) => {
-          if (info.type === 'error') {
-            log(`错误: ${info.message}`, 'error');
-          } else if (info.type === 'warn') {
-            log(`警告: ${info.message}`, 'warn');
-          } else {
-            log(info.message);
-          }
-        }
-      });
-    }
-    
-    log(`NPM 构建完成`, 'success');
-    return true;
-  } catch (e) {
-    log(`构建失败: ${e.message}`, 'error');
-    return false;
-  }
+
+  const args = ['pack-npm'];
+  pushArg(args, '--pp', projectPath);
+  pushArg(args, '--pkp', privateKeyPath);
+  pushArg(args, '--appid', appid);
+  pushArg(args, '--type', options.type || config.type);
+  if (options.ignores) pushArg(args, '--ignores', options.ignores);
+
+  log('=== 构建 NPM ===');
+  return runGlobalMiniprogramCi(args);
 }
 
 // upload-function: 上传云函数（需要 miniprogram-ci@alpha）
 async function cmdUploadFunction(options) {
-  const miniprogramCi = require('miniprogram-ci');
-  
+  if (!ensureGlobalMiniprogramCi()) {
+    return false;
+  }
+
   const projectPath = (options.projectPath || config.projectPath).replace('~', os.homedir());
   const privateKeyPath = (options.privateKeyPath || options.privateKey || config.privateKeyPath).replace('~', os.homedir());
   const appid = options.appid || config.appid;
-  
+
   const env = options.env;
   const name = options.name;
   const funcPath = options.path;
-  
+
   if (!appid) {
     log('缺少必要参数: appid', 'error');
     return false;
@@ -992,57 +897,39 @@ async function cmdUploadFunction(options) {
     log('缺少必要参数: env, name, path', 'error');
     return false;
   }
-  
+
   if (!checkPrivateKey(privateKeyPath) || !checkProjectPath(projectPath)) {
     return false;
   }
-  
-  if (!checkMiniprogramCiInstalled(projectPath)) {
-    return false;
-  }
-  
-  log(`⚠️ 注意: 云函数上传可能需要 miniprogram-ci@alpha 版本`, 'warn');
-  
-  const project = new miniprogramCi.Project({
-    appid,
-    type: options.type || config.type,
-    projectPath,
-    privateKeyPath
-  });
-  
-  log(`=== 上传云函数 ===`);
-  log(`环境: ${env}`);
-  log(`函数: ${name}`);
-  log(`路径: ${funcPath}`);
-  
-  try {
-    await miniprogramCi.cloud.uploadFunction({
-      project,
-      name,
-      path: funcPath,
-      env,
-      remoteNpmInstall: options.remoteNpmInstall || false
-    });
-    
-    log(`云函数上传成功: ${name}`, 'success');
-    return true;
-  } catch (e) {
-    log(`上传失败: ${e.message}`, 'error');
-    return false;
-  }
+
+  const args = ['cloud', 'functions', 'upload'];
+  pushArg(args, '--pp', projectPath);
+  pushArg(args, '--pkp', privateKeyPath);
+  pushArg(args, '--appid', appid);
+  pushArg(args, '--type', options.type || config.type);
+  pushArg(args, '--env', env);
+  pushArg(args, '--name', name);
+  pushArg(args, '--path', funcPath);
+  if (options.remoteNpmInstall) pushArg(args, '--remote-npm-install', options.remoteNpmInstall);
+
+  log('⚠️ 注意: 云函数上传可能需要 miniprogram-ci@alpha 版本', 'warn');
+  log('=== 上传云函数 ===');
+  return runGlobalMiniprogramCi(args);
 }
 
 // upload-storage: 上传云存储（需要 miniprogram-ci@alpha）
 async function cmdUploadStorage(options) {
-  const miniprogramCi = require('miniprogram-ci');
-  
+  if (!ensureGlobalMiniprogramCi()) {
+    return false;
+  }
+
   const projectPath = (options.projectPath || config.projectPath).replace('~', os.homedir());
   const privateKeyPath = (options.privateKeyPath || options.privateKey || config.privateKeyPath).replace('~', os.homedir());
   const appid = options.appid || config.appid;
-  
+
   const env = options.env;
   const storagePath = options.path;
-  
+
   if (!appid) {
     log('缺少必要参数: appid', 'error');
     return false;
@@ -1051,58 +938,38 @@ async function cmdUploadStorage(options) {
     log('缺少必要参数: env, path', 'error');
     return false;
   }
-  
+
   if (!checkPrivateKey(privateKeyPath) || !checkProjectPath(projectPath)) {
     return false;
   }
-  
-  if (!checkMiniprogramCiInstalled(projectPath)) {
-    return false;
-  }
-  
-  log(`⚠️ 注意: 云存储上传需要 miniprogram-ci@alpha 版本`, 'warn');
-  
-  const project = new miniprogramCi.Project({
-    appid,
-    type: options.type || config.type,
-    projectPath,
-    privateKeyPath
-  });
-  
-  log(`=== 上传云存储 ===`);
-  log(`环境: ${env}`);
-  log(`本地路径: ${storagePath}`);
-  if (options.remotePath) {
-    log(`远端路径: ${options.remotePath}`);
-  }
-  
-  try {
-    await miniprogramCi.cloud.uploadStorage({
-      project,
-      path: storagePath,
-      env,
-      remotePath: options.remotePath
-    });
-    
-    log(`云存储上传成功`, 'success');
-    return true;
-  } catch (e) {
-    log(`上传失败: ${e.message}`, 'error');
-    return false;
-  }
+
+  const args = ['cloud', 'uploadStorage'];
+  pushArg(args, '--pp', projectPath);
+  pushArg(args, '--pkp', privateKeyPath);
+  pushArg(args, '--appid', appid);
+  pushArg(args, '--type', options.type || config.type);
+  pushArg(args, '--env', env);
+  pushArg(args, '--path', storagePath);
+  if (options.remotePath) pushArg(args, '--remote-path', options.remotePath);
+
+  log('⚠️ 注意: 云存储上传需要 miniprogram-ci@alpha 版本', 'warn');
+  log('=== 上传云存储 ===');
+  return runGlobalMiniprogramCi(args);
 }
 
 // get-sourcemap: 获取 sourceMap（用于错误定位）
 async function cmdGetSourcemap(options) {
-  const miniprogramCi = require('miniprogram-ci');
-  
+  if (!ensureGlobalMiniprogramCi()) {
+    return false;
+  }
+
   const projectPath = (options.projectPath || config.projectPath).replace('~', os.homedir());
   const privateKeyPath = (options.privateKeyPath || options.privateKey || config.privateKeyPath).replace('~', os.homedir());
   const appid = options.appid || config.appid;
-  
+
   const robot = options.robot;
   const output = options.output;
-  
+
   if (!appid) {
     log('缺少必要参数: appid', 'error');
     return false;
@@ -1115,46 +982,28 @@ async function cmdGetSourcemap(options) {
     log('缺少必要参数: output', 'error');
     return false;
   }
-  
+
   if (!checkPrivateKey(privateKeyPath) || !checkProjectPath(projectPath)) {
     return false;
   }
-  
-  if (!checkMiniprogramCiInstalled(projectPath)) {
-    return false;
-  }
-  
+
   if (!validateRobot(robot)) {
     return false;
   }
-  
-  const project = new miniprogramCi.Project({
-    appid,
-    type: options.type || config.type,
-    projectPath,
-    privateKeyPath
-  });
-  
-  const outputDir = path.resolve(output.replace('~', os.homedir()));
+
+  const outputDir = resolvePath(output);
   ensureDir(outputDir);
-  
-  log(`=== 获取 SourceMap ===`);
-  log(`机器人: ${robot}`);
-  log(`输出路径: ${outputDir}`);
-  
-  try {
-    await miniprogramCi.getDevSourceMap({
-      project,
-      robot: parseInt(robot, 10),
-      sourceMapSavePath: outputDir
-    });
-    
-    log(`SourceMap 已保存: ${outputDir}`, 'success');
-    return true;
-  } catch (e) {
-    log(`获取失败: ${e.message}`, 'error');
-    return false;
-  }
+
+  const args = ['get-dev-source-map'];
+  pushArg(args, '--pp', projectPath);
+  pushArg(args, '--pkp', privateKeyPath);
+  pushArg(args, '--appid', appid);
+  pushArg(args, '--type', options.type || config.type);
+  pushArg(args, '-r', robot);
+  pushArg(args, '--source-map-save-path', outputDir);
+
+  log('=== 获取 SourceMap ===');
+  return runGlobalMiniprogramCi(args);
 }
 
 // ============== 主程序 ==============
@@ -1168,7 +1017,7 @@ wxmini-ci v${VERSION} - 微信小程序 CI 工具
   node wx-miniprogram-ci.js <command> [options]
 
 命令:
-  init            初始化环境（安装依赖）
+  init            初始化环境（检查/安装全局 miniprogram-ci）
   config          查看/修改配置
   check           检查配置是否完整
   preview         预览（生成二维码）
@@ -1255,6 +1104,14 @@ async function main() {
   }
   
   const command = args[0];
+  
+  // 在解析参数之前先检查是否传入 --config-dir，确保 config 文件加载时可正确使用自定义目录
+  for (let i = 0; i < args.length; i++) {
+    if (args[i] === '--config-dir' && args[i + 1] && !args[i + 1].startsWith('--')) {
+      cliConfigDir = args[i + 1];
+      break;
+    }
+  }
   
   // 1. 加载配置（环境变量 → 配置文件）
   loadConfig();
